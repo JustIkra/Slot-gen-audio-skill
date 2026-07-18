@@ -22,13 +22,13 @@ fit each sound to the game's engine format. Built and battle-tested on a real pr
 reskin (ancient-Egyptian / desert fantasy slot).
 
 ## The one thing to remember
-**You (Claude) cannot hear.** Never claim a sound is good. Your job is: generate → measure
+**The agent cannot hear audio directly.** Never claim a sound is good. The workflow is: generate → measure
 objectively → get an LLM's *type/material* read → hand the file to the USER for the final
 ear verdict. The user's ears are ground truth, especially for "harsh / cuts the ears".
 
 ## Backends (all crypto-payable)
 
-API keys in `~/.claude/.env`: `VENICE_API_KEY`, `AIMLAPI_KEY`, `OPENROUTER_KEY`, `GOOGLE_API_KEY`.
+API keys in `~/.codex/.env`: `VENICE_API_KEY`, `AIMLAPI_KEY`, `OPENROUTER_KEY`, `GOOGLE_API_KEY`.
 
 | Need | Provider / model | Why |
 |------|------------------|-----|

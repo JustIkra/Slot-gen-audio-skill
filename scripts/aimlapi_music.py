@@ -8,7 +8,7 @@ Usage:
   python3 aimlapi_music.py --model lyria2 --prompt "..." --out ./.tmp/bg.wav
   python3 aimlapi_music.py --model stable-audio --prompt "..." --seconds 30 --out ./.tmp/x.wav
 Models: lyria2 (music ~30s, 48k), stable-audio (SFX/ambient, 44.1k, takes --seconds), minimax-music.
-Key: AIMLAPI_KEY in ~/.claude/.env
+Key: AIMLAPI_KEY in ~/.codex/.env
 """
 import argparse, json, subprocess, time, urllib.request, urllib.error
 from pathlib import Path
@@ -18,10 +18,10 @@ UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML,
 
 
 def key(name="AIMLAPI_KEY"):
-    for raw in (Path.home() / ".claude" / ".env").read_text().splitlines():
+    for raw in (Path.home() / ".codex" / ".env").read_text().splitlines():
         if raw.strip().startswith(name + "="):
             return raw.split("=", 1)[1].strip().strip('"').strip("'")
-    raise SystemExit(f"missing {name} in ~/.claude/.env")
+    raise SystemExit(f"missing {name} in ~/.codex/.env")
 
 
 def req(url, k, data=None, method="GET"):

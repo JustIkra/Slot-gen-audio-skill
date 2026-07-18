@@ -1,6 +1,6 @@
 # slot-gen-audio
 
-A Claude skill that generates a full **slot-game audio pack** — SFX + ambient / background
+A Codex skill that generates a full **slot-game audio pack** — SFX + ambient / background
 music — using **crypto-payable** providers only, then verifies and fits each sound to the
 game engine's format.
 
@@ -9,12 +9,12 @@ fantasy slot): reel spin/stop, scatter, anticipation, wild, win lines, UI clicks
 open/close, plus background / free-spins / win music.
 
 ## The one thing to remember
-**Claude cannot hear.** The skill never claims a sound is "good". The pipeline is:
+**The agent cannot hear audio directly.** The skill never claims a sound is "good". The pipeline is:
 generate → measure objectively (ffmpeg spectral gate) → get an LLM's *type/material* read
 (Gemini 2.5 Pro) → hand the file to the user for the final ear verdict.
 
 ## Backends (all crypto-payable)
-Keys live in `~/.claude/.env` (`VENICE_API_KEY`, `AIMLAPI_KEY`, `OPENROUTER_KEY`, `GOOGLE_API_KEY`) — **never committed**.
+Keys live in `~/.codex/.env` (`VENICE_API_KEY`, `AIMLAPI_KEY`, `OPENROUTER_KEY`, `GOOGLE_API_KEY`) — **never committed**.
 
 | Need | Provider / model |
 |------|------------------|

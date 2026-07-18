@@ -8,7 +8,7 @@ Usage:
   python3 venice_sfx.py --prompt "..." --seconds 2 --out ./.tmp/x.wav
 Notes:
   * prompt MUST be <= 240 chars ; --seconds is an INTEGER (0.5..30 -> rounded).
-  * key from ~/.claude/.env: VENICE_API_KEY
+  * key from ~/.codex/.env: VENICE_API_KEY
 """
 import argparse, base64, json, subprocess, sys, time, urllib.request, urllib.error
 from pathlib import Path
@@ -19,10 +19,10 @@ UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML,
 
 
 def key(name="VENICE_API_KEY"):
-    for raw in (Path.home() / ".claude" / ".env").read_text().splitlines():
+    for raw in (Path.home() / ".codex" / ".env").read_text().splitlines():
         if raw.strip().startswith(name + "="):
             return raw.split("=", 1)[1].strip().strip('"').strip("'")
-    raise SystemExit(f"missing {name} in ~/.claude/.env")
+    raise SystemExit(f"missing {name} in ~/.codex/.env")
 
 
 def http(method, path, k, body=None):

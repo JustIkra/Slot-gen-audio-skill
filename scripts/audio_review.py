@@ -8,7 +8,7 @@ You can't hear; this gives a TYPE/MATERIAL read (reliable) — NOT a harshness v
   consult  <original> <attempt> "<prompt>"-> critique the IDEA + corrected ElevenLabs prompt
 
 Short clips (<~0.4s) are padded to 2s so the model can "hear" them.
-Key: OPENROUTER_KEY in ~/.claude/.env
+Key: OPENROUTER_KEY in ~/.codex/.env
 """
 import base64, json, re, subprocess, sys, time, urllib.request, urllib.error
 from pathlib import Path
@@ -18,7 +18,7 @@ MODEL = "google/gemini-2.5-pro"
 
 
 def key(name="OPENROUTER_KEY"):
-    for raw in (Path.home() / ".claude" / ".env").read_text().splitlines():
+    for raw in (Path.home() / ".codex" / ".env").read_text().splitlines():
         if raw.strip().startswith(name + "="):
             return raw.split("=", 1)[1].strip().strip('"').strip("'")
     raise SystemExit(f"missing {name}")
