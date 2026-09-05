@@ -19,3 +19,6 @@ node_modules/
 
 # Generated audio / artifacts
 *.log
+.tmp*/
+.env*
+!.env.example

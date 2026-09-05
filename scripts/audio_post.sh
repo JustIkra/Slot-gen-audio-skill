@@ -43,14 +43,7 @@ case "$cmd" in
     rm -f "$outdir/_fbase.wav"
     echo "wrote ${prefix}_1..${count}.wav in $outdir" ;;
   fit)
-    in="$1"; orig="$2"; out="$3"; peak="${4:--3}"
-    d=$(dur "$orig")
-    ff -i "$in" -t "$d" -ar 48000 -ac 2 -c:a pcm_f32le "$out.t.wav"
-    g=$(awk "BEGIN{printf \"%.2f\", ($peak)-($(maxvol "$out.t.wav"))}")
-    fst=$(awk "BEGIN{x=$d-0.04; if(x<0)x=0; printf \"%.3f\",x}")
-    ff -i "$out.t.wav" -af "volume=${g}dB,afade=t=out:st=${fst}:d=0.04" -ar 48000 -ac 2 -c:a pcm_f32le "$out"
-    rm -f "$out.t.wav"
-    echo "fit $out -> ${d}c peak ${peak}dB" ;;
+    "${PYTHON:-python3}" "$(dirname "$0")/audio_metrics.py" fit "$@" ;;
   spectral)
     full=$(maxvol "$1")
     hi=$(ffmpeg -hide_banner -i "$1" -af "highpass=f=6000,volumedetect" -f null /dev/null 2>&1 | sed -n 's/.*max_volume: //p')
