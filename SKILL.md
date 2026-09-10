@@ -22,7 +22,7 @@ Use the Python environment containing the sibling slotgen-provider package:
 
 ffmpeg and ffprobe must be on PATH. The prepared shared interpreter is
 /Users/maksim/MorningCat/.local/skills-venv/bin/python. Keys are VENICE_API_KEY,
-AIMLAPI_KEY and OPENROUTER_KEY in the environment or ~/.codex/.env; do not expose values.
+AIMLAPI_KEY in the environment or ~/.codex/.env; do not expose values.
 
 ## Routes
 
@@ -36,8 +36,9 @@ AIMLAPI_KEY and OPENROUTER_KEY in the environment or ~/.codex/.env; do not expos
 | Numbered-family deduplication | scripts/dedup_check.py |
 | Existing processing recipes | scripts/audio_post.sh |
 
-Configured defaults remain Venice/ElevenLabs SFX, AIMLAPI/Lyria music and
-OpenRouter/Gemini audio understanding. Provider details, explicit formats and examples:
+Configured defaults are Venice/ElevenLabs SFX, AIMLAPI/Lyria music and
+AIMLAPI/Qwen3.5-Omni Plus audio understanding (`alibaba/qwen3.5-omni-plus`).
+Provider details, explicit formats and examples:
 [audio operations](references/audio-operations.md). Do not silently substitute providers
 or models; check current provider capabilities before changing the configured route.
 
@@ -60,9 +61,19 @@ fit defaults to the reference PCM format; --format engine requires a profile JSO
 sample_rate, channels and codec. It pads/trims, fades the tail, measures the rendered output
 and refuses input overwrite. Legacy non-fit shell recipes have an explicit 48k stereo target.
 
-Audio review preserves the full clip by default, or records --segments coverage. --brief
-supplies the project's theme; --out preserves the report. --max-tokens is passed unchanged.
-A truncated/refused/empty response is a failed review, not a successful audit.
+Review game sounds as episodes built from the matching runtime audio atlas and its JSON
+sound keys. Derive cue boundaries from the atlas and ordering/loops from game events;
+label reconstructed timing and omitted mix layers. For an isolated cue, send the whole cue.
+See the atlas recipe in [audio operations](references/audio-operations.md).
+
+Audio review preserves full clips by default, or records --segments coverage. It measures
+digital silence locally and omits silent windows from model input. --brief supplies the
+game context; --out must be a new report path. Qwen returns structured descriptions,
+issues and uncertainties; consult also returns a comparison and generation suggestion.
+--max-tokens defaults to 8192 and an explicit value is passed unchanged. HTTP 200 can carry
+an error event: only a complete, non-refused response with audio_accessible=true is a model
+review. Failures and interrupted requests remain in the report; do not silently retry or
+switch models. Timing, silence and levels come from measurements, not model guesses.
 
 Generation uses saved job records with submit/resume/download/auto. Resume existing jobs;
 submission_unknown is not permission to submit again. Check generated format and preserve

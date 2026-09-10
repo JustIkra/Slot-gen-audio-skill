@@ -1,7 +1,7 @@
 # Audio operations
 
 Run scripts in the environment containing slotgen-provider and numpy, with ffmpeg/ffprobe
-on PATH. Credentials: VENICE_API_KEY, AIMLAPI_KEY, OPENROUTER_KEY; no values in arguments/logs.
+on PATH. Credentials: VENICE_API_KEY and AIMLAPI_KEY; no values in arguments/logs.
 
 ## Generate and resume
 
@@ -33,13 +33,56 @@ target 48k stereo; do not confuse them with reference-format matching.
 
 ## Review
 
+Default: `alibaba/qwen3.5-omni-plus` via AIMLAPI
+`POST https://api.aimlapi.com/v1/chat/completions`, authenticated with AIMLAPI_KEY.
+Send audio as raw Base64 in `input_audio.data` with `format: "mp3"`. The helper decodes
+the source, measures the selected window and encodes MP3 for transport. Request streaming
+text output, temperature 0.2 and max_tokens 8192 unless the user supplies another budget.
+No OpenRouter reasoning options or automatic fallback are used.
+
     python scripts/audio_review.py describe cue.wav --full --brief brief.md --out .tmp_audio/review.json
     python scripts/audio_review.py consult original.wav candidate.wav "generation prompt" --brief brief.md --out .tmp_audio/comparison.json
 
 Without --segments the whole clip is supplied; short clips are padded only for analysis.
 An explicit segments JSON contains a list of [start,end] seconds applied to each input.
-The report records coverage and input hashes. --max-tokens is never reduced automatically.
-Provider failures, refusals and incomplete responses do not count as completed reviews.
+The report distinguishes original/candidate even when their filenames match. It records
+source paths, input hashes, coverage, padding, decoded sample peaks, requested/returned
+model, request ID and available usage/cost. `review` is a JSON object with description,
+issues, uncertainties and optional comparison/generation fields. Exact timing is supplied
+as metadata; suggestions are advisory and need a listening check.
+
+Digital silence is checked before model invocation: silent windows are represented by
+metadata, and an entirely silent request returns `status: digital_silence` locally with
+`provider_called: false`. This is a measurement result, not subjective approval. Very quiet
+nonzero audio is not automatically classified as silence.
+
+Reports use a new --out path per intentional request. A submitted record is written before
+the provider call. HTTP 200 error events, missing terminal markers, truncated outputs,
+refusals and audio_accessible=false fail the review and retain available error details.
+`submission_unknown` means transport was interrupted and completion/billing is uncertain;
+inspect the provider's request/usage history before submitting again. Do not silently lower
+--max-tokens, convert an audio failure to a text-only success, or switch to another reviewer.
+
+### Atlas episodes
+
+Use the matching JSON and audio from the game's actual runtime build. Do not combine an
+old source-atlas JSON with a newly packed OGG/MP3. Audiosprite entries are
+`[start_ms, duration_ms, optional_loop]`: convert to `[start_ms/1000,
+(start_ms+duration_ms)/1000]` for --segments. Record the soundKey alongside those bounds in
+the task manifest/brief. Separate --segments are delivered as separate labelled windows,
+not concatenated into a seamless playback sequence.
+
+For a spin, scatter series, bonus transition or win sequence, extract complete keys with
+ffmpeg and assemble an episode using the event order, repetitions, start/stop, fades and
+mix levels from game configuration. Store an episode manifest with atlas fingerprints,
+keys, source bounds and playback intervals. Distinguish a reconstructed episode from a
+captured gameplay recording; disclose estimated gaps or excluded background layers.
+Then review the resulting episode as a full clip. Do not use a random first-N-second
+slice as a substitute for a named cue or full loop. Retain numerical measurements for
+silence, levels and timing even when the model's description sounds confident.
+
+API references: [AIMLAPI Qwen](https://docs.aimlapi.com/api-references/text-models-llm/alibaba-cloud/qwen3.5-omni-plus),
+[Alibaba audio input](https://www.alibabacloud.com/help/en/model-studio/qwen-omni).
 
 For families, inspect originals with dedup_check.py first. Related variants should not
 be accidentally identical; pitch changes are one possible technique, not a universal rule.
