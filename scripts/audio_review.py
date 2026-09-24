@@ -1,4 +1,4 @@
-"""Review complete audio clips or explicit atlas windows with Qwen through AIMLAPI."""
+"""Review complete audio clips or explicit atlas windows with Qwen."""
 import argparse
 import base64
 import json
@@ -7,13 +7,37 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from audio_metrics import probe
 
-ENDPOINT = "https://api.aimlapi.com/v1/chat/completions"
-MODEL = "alibaba/qwen3.5-omni-plus"
-DEFAULT_MAX_TOKENS = 8192
+MODEL = "qwen/qwen3.8-omni-flash"
+QWEN35_MODEL = "alibaba/qwen3.5-omni-plus"
+MODEL_PROFILES = {
+    MODEL: {
+        "provider": "OpenRouter",
+        "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+        "key_name": "OPENROUTER_KEY",
+        "token_field": "max_completion_tokens",
+    },
+    QWEN35_MODEL: {
+        "provider": "AIMLAPI",
+        "endpoint": "https://api.aimlapi.com/v1/chat/completions",
+        "key_name": "AIMLAPI_KEY",
+        "token_field": "max_tokens",
+    },
+}
+MODEL_ALIASES = {"qwen3.8-omni-flash": MODEL}
+DEFAULT_MAX_TOKENS = 16384
+
+
+def profile_for(model):
+    selected = MODEL_ALIASES.get(model, model)
+    try:
+        return selected, MODEL_PROFILES[selected]
+    except KeyError as error:
+        raise ValueError(f"Unsupported audio review model: {model}") from error
 
 
 class ReviewFailure(ValueError):
@@ -159,19 +183,23 @@ def parse_response(payload):
     return {**details, "review": review}
 
 
-def call(content, max_tokens=DEFAULT_MAX_TOKENS):
+def call(content, max_tokens=DEFAULT_MAX_TOKENS, model=MODEL):
     from slotgen_provider.env import provider_key
     from slotgen_provider.http import request_bytes
     if max_tokens is None:
         max_tokens = DEFAULT_MAX_TOKENS
     if max_tokens <= 0:
         raise ValueError("max_tokens must be positive")
-    key = provider_key("AIMLAPI_KEY")
-    body = {"model": MODEL, "stream": True, "stream_options": {"include_usage": True},
-            "modalities": ["text"], "temperature": 0.2, "max_tokens": max_tokens,
+    selected, profile = profile_for(model)
+    key = provider_key(profile["key_name"])
+    body = {"model": selected, "stream": True, "stream_options": {"include_usage": True},
+            "modalities": ["text"], "temperature": 0.2, profile["token_field"]: max_tokens,
             "messages": [{"role": "user", "content": content}]}
-    payload, _ = request_bytes("POST", ENDPOINT, token=key,
-                               allowed_origins={"https://api.aimlapi.com"}, body=body, timeout=300)
+    endpoint = profile["endpoint"]
+    parsed_endpoint = urlsplit(endpoint)
+    origin = f"{parsed_endpoint.scheme}://{parsed_endpoint.netloc}"
+    payload, _ = request_bytes("POST", endpoint, token=key,
+                               allowed_origins={origin}, body=body, timeout=300)
     return parse_response(payload.replace(key.encode(), b"[REDACTED]"))
 
 
@@ -187,7 +215,10 @@ def main(argv=None):
     coverage.add_argument("--segments", help="JSON list of [start,end] seconds applied to each input")
     parser.add_argument("--out", required=True, help="New task-local review report JSON")
     parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
+    parser.add_argument("--model", choices=(*MODEL_PROFILES, *MODEL_ALIASES), default=MODEL,
+                        help="Qwen3.8 via OpenRouter by default; Qwen3.5 via AIMLAPI if selected explicitly")
     args = parser.parse_args(argv)
+    selected_model, profile = profile_for(args.model)
     output = Path(args.out)
     if output.exists():
         raise ValueError("Review report already exists; use a new path for an intentional new request")
@@ -219,10 +250,12 @@ def main(argv=None):
                    "Candidate generation prompt: " + args.used_prompt)
     prompt += ('\nReturn one JSON object without Markdown: {"audio_accessible":true, '
                '"description":"audible observations", "issues":[{"observation":"specific property", '
-               '"suggestion":"actionable adjustment or check"}], "uncertainties":["limitations"], '
-               '"comparison":null, "generation_prompt_en":null, "suggested_duration_seconds":null}. '
-               'For consult, fill comparison, generation_prompt_en and suggested_duration_seconds. '
-               'Use the language of the brief for prose.')
+               '"suggestion":"actionable adjustment or check"}], "uncertainties":["limitations"]')
+    if args.operation == "consult":
+        prompt += (', "comparison":"specific audible comparison", '
+                   '"generation_prompt_en":"English prompt, at most 240 characters", '
+                   '"suggested_duration_seconds":1.0')
+    prompt += '}. Use the language of the brief for prose.'
     content, windows = [{"type": "text", "text": prompt}], {}
     for label, file in files:
         parts, window = audio_content(file, segments, label=label)
@@ -233,7 +266,8 @@ def main(argv=None):
                    for (label, file), fp in zip(files, input_fingerprints([f for _, f in files]))],
         "coverage": windows, "brief": brief, "operation": args.operation,
         "candidate_prompt": args.used_prompt if args.operation == "consult" else None,
-        "model": MODEL, "provider": "AIMLAPI", "endpoint": ENDPOINT,
+        "model": selected_model, "provider": profile["provider"],
+        "endpoint": profile["endpoint"],
         "max_tokens": args.max_tokens, "provider_called": False, "status": "prepared",
     }
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -248,7 +282,7 @@ def main(argv=None):
         report.update(status="submitted", provider_called=True)
         output.write_text(json.dumps(report, ensure_ascii=False, indent=2))
         try:
-            result = call(content, args.max_tokens)
+            result = call(content, args.max_tokens, args.model)
             if args.operation == "consult" and any(result["review"].get(field) in (None, "")
                                                     for field in ("comparison", "generation_prompt_en", "suggested_duration_seconds")):
                 raise ReviewFailure("Comparison response is missing requested fields", result)

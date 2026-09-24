@@ -21,9 +21,9 @@ class AudioReviewTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=0.3', str(path)], check=True)
 
-    def stream(self, content, finish='stop', done=True):
+    def stream(self, content, finish='stop', done=True, model='qwen/qwen3.8-omni-flash'):
         events = [
-            {'id': 'request-test', 'model': 'qwen3.5-omni-plus', 'choices': [{'index': 0, 'delta': {'content': content[:10]}, 'finish_reason': None}]},
+            {'id': 'request-test', 'model': model, 'choices': [{'index': 0, 'delta': {'content': content[:10]}, 'finish_reason': None}]},
             {'choices': [{'index': 0, 'delta': {'content': content[10:]}, 'finish_reason': finish}]},
             {'choices': [], 'usage': {'prompt_tokens': 50, 'completion_tokens': 20}, 'meta': {'usage': {'usd_spent': 0.001}}},
         ]
@@ -35,7 +35,7 @@ class AudioReviewTests(unittest.TestCase):
                 'issues': [], 'uncertainties': [], 'comparison': None,
                 'generation_prompt_en': None, 'suggested_duration_seconds': None}
 
-    def test_qwen_request_uses_aiml_key_raw_audio_and_preserves_token_budget(self):
+    def test_default_qwen38_uses_openrouter_raw_audio_and_completion_budget(self):
         audio = b'example MP3 bytes'
         content = [{'type': 'input_audio', 'input_audio': {'data': base64.b64encode(audio).decode(), 'format': 'mp3'}}]
         payload = self.stream(json.dumps(self.answer()))
@@ -43,18 +43,50 @@ class AudioReviewTests(unittest.TestCase):
             'slotgen_provider.http.request_bytes', return_value=(payload, {'content-type': 'text/event-stream'})
         ) as request:
             result = review.call(content, max_tokens=9876)
-        credential.assert_called_once_with('AIMLAPI_KEY')
-        self.assertEqual(request.call_args.args, ('POST', 'https://api.aimlapi.com/v1/chat/completions'))
+        credential.assert_called_once_with('OPENROUTER_KEY')
+        self.assertEqual(request.call_args.args, ('POST', 'https://openrouter.ai/api/v1/chat/completions'))
+        self.assertEqual(request.call_args.kwargs['allowed_origins'], {'https://openrouter.ai'})
         body = request.call_args.kwargs['body']
-        self.assertEqual(body['model'], 'alibaba/qwen3.5-omni-plus')
+        self.assertEqual(body['model'], 'qwen/qwen3.8-omni-flash')
         self.assertTrue(body['stream'])
         self.assertEqual(body['modalities'], ['text'])
-        self.assertEqual(body['max_tokens'], 9876)
+        self.assertEqual(body['max_completion_tokens'], 9876)
+        self.assertNotIn('max_tokens', body)
         self.assertNotIn('reasoning', body)
         self.assertEqual(base64.b64decode(body['messages'][0]['content'][0]['input_audio']['data']), audio)
         self.assertEqual(result['review']['description'], self.answer()['description'])
         self.assertEqual(result['usage']['prompt_tokens'], 50)
         self.assertEqual(result['meta']['usage']['usd_spent'], 0.001)
+
+    def test_qwen35_is_explicit_aimlapi_route_without_fallback(self):
+        content = [{'type': 'input_audio', 'input_audio': {'data': 'YWJj', 'format': 'mp3'}}]
+        payload = self.stream(json.dumps(self.answer()), model='alibaba/qwen3.5-omni-plus')
+        with patch('slotgen_provider.env.provider_key', return_value='aimlapi-secret') as credential, patch(
+            'slotgen_provider.http.request_bytes', return_value=(payload, {'content-type': 'text/event-stream'})
+        ) as request:
+            result = review.call(content, max_tokens=4321, model='alibaba/qwen3.5-omni-plus')
+        credential.assert_called_once_with('AIMLAPI_KEY')
+        self.assertEqual(request.call_args.args, ('POST', 'https://api.aimlapi.com/v1/chat/completions'))
+        self.assertEqual(request.call_args.kwargs['allowed_origins'], {'https://api.aimlapi.com'})
+        body = request.call_args.kwargs['body']
+        self.assertEqual(body['model'], 'alibaba/qwen3.5-omni-plus')
+        self.assertEqual(body['max_tokens'], 4321)
+        self.assertEqual(result['review']['audio_accessible'], True)
+
+    def test_existing_qwen38_alias_still_routes_to_openrouter(self):
+        payload = self.stream(json.dumps(self.answer()))
+        with patch('slotgen_provider.env.provider_key', return_value='test-credential') as credential, patch(
+            'slotgen_provider.http.request_bytes', return_value=(payload, {})
+        ) as request:
+            review.call([], model='qwen3.8-omni-flash')
+        credential.assert_called_once_with('OPENROUTER_KEY')
+        self.assertEqual(request.call_args.kwargs['body']['model'], 'qwen/qwen3.8-omni-flash')
+
+    def test_unknown_model_is_rejected_before_provider_call(self):
+        with patch('slotgen_provider.env.provider_key') as credential:
+            with self.assertRaises(ValueError):
+                review.call([], model='not-a-qwen-model')
+        credential.assert_not_called()
 
     def test_stream_errors_after_partial_text_are_not_reviews(self):
         payload = self.stream('partial', done=False) + b'data: {"error":{"message":"Invalid audio URL","request_id":"failed-id"}}\n\ndata: [DONE]\n\n'
@@ -102,6 +134,10 @@ class AudioReviewTests(unittest.TestCase):
             report = json.loads(output.read_text())
             self.assertEqual(report['status'], 'digital_silence')
             self.assertFalse(report['provider_called'])
+            self.assertEqual(report['model'], 'qwen/qwen3.8-omni-flash')
+            self.assertEqual(report['provider'], 'OpenRouter')
+            self.assertEqual(report['endpoint'], 'https://openrouter.ai/api/v1/chat/completions')
+            self.assertEqual(report['max_tokens'], 16384)
 
     def test_existing_report_is_preserved_before_network_call(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -153,6 +189,18 @@ class AudioReviewTests(unittest.TestCase):
             self.assertEqual(report['status'], 'complete')
             self.assertNotEqual(report['coverage']['original']['path'], report['coverage']['candidate']['path'])
             self.assertEqual(len([p for p in request.call_args.kwargs['body']['messages'][0]['content'] if p['type'] == 'input_audio']), 2)
+
+    def test_describe_does_not_request_consult_only_fields(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source, output = Path(folder) / 'cue.wav', Path(folder) / 'review.json'
+            self.tone(source)
+            with patch('slotgen_provider.env.provider_key', return_value='test-credential'), patch(
+                'slotgen_provider.http.request_bytes', return_value=(self.stream(json.dumps(self.answer())), {})
+            ) as request, patch('sys.stdout', new_callable=io.StringIO):
+                review.main(['describe', str(source), '--out', str(output)])
+            prompt = request.call_args.kwargs['body']['messages'][0]['content'][0]['text']
+            self.assertNotIn('generation_prompt_en', prompt)
+            self.assertNotIn('suggested_duration_seconds', prompt)
 
     def test_full_review_keeps_more_than_the_first_two_seconds(self):
         with tempfile.TemporaryDirectory() as folder:
