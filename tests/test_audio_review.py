@@ -35,7 +35,7 @@ class AudioReviewTests(unittest.TestCase):
                 'issues': [], 'uncertainties': [], 'comparison': None,
                 'generation_prompt_en': None, 'suggested_duration_seconds': None}
 
-    def test_default_qwen38_uses_openrouter_raw_audio_and_completion_budget(self):
+    def test_qwen38_uses_openrouter_raw_audio_and_explicit_completion_budget(self):
         audio = b'example MP3 bytes'
         content = [{'type': 'input_audio', 'input_audio': {'data': base64.b64encode(audio).decode(), 'format': 'mp3'}}]
         payload = self.stream(json.dumps(self.answer()))
@@ -58,35 +58,26 @@ class AudioReviewTests(unittest.TestCase):
         self.assertEqual(result['usage']['prompt_tokens'], 50)
         self.assertEqual(result['meta']['usage']['usd_spent'], 0.001)
 
-    def test_qwen35_is_explicit_aimlapi_route_without_fallback(self):
-        content = [{'type': 'input_audio', 'input_audio': {'data': 'YWJj', 'format': 'mp3'}}]
-        payload = self.stream(json.dumps(self.answer()), model='alibaba/qwen3.5-omni-plus')
-        with patch('slotgen_provider.env.provider_key', return_value='aimlapi-secret') as credential, patch(
-            'slotgen_provider.http.request_bytes', return_value=(payload, {'content-type': 'text/event-stream'})
-        ) as request:
-            result = review.call(content, max_tokens=4321, model='alibaba/qwen3.5-omni-plus')
-        credential.assert_called_once_with('AIMLAPI_KEY')
-        self.assertEqual(request.call_args.args, ('POST', 'https://api.aimlapi.com/v1/chat/completions'))
-        self.assertEqual(request.call_args.kwargs['allowed_origins'], {'https://api.aimlapi.com'})
-        body = request.call_args.kwargs['body']
-        self.assertEqual(body['model'], 'alibaba/qwen3.5-omni-plus')
-        self.assertEqual(body['max_tokens'], 4321)
-        self.assertEqual(result['review']['audio_accessible'], True)
-
-    def test_existing_qwen38_alias_still_routes_to_openrouter(self):
+    def test_default_request_has_no_completion_cap(self):
         payload = self.stream(json.dumps(self.answer()))
         with patch('slotgen_provider.env.provider_key', return_value='test-credential') as credential, patch(
             'slotgen_provider.http.request_bytes', return_value=(payload, {})
         ) as request:
-            review.call([], model='qwen3.8-omni-flash')
+            review.call([])
         credential.assert_called_once_with('OPENROUTER_KEY')
-        self.assertEqual(request.call_args.kwargs['body']['model'], 'qwen/qwen3.8-omni-flash')
+        body = request.call_args.kwargs['body']
+        self.assertEqual(body['model'], 'qwen/qwen3.8-omni-flash')
+        self.assertNotIn('max_completion_tokens', body)
+        self.assertNotIn('max_tokens', body)
 
-    def test_unknown_model_is_rejected_before_provider_call(self):
-        with patch('slotgen_provider.env.provider_key') as credential:
-            with self.assertRaises(ValueError):
-                review.call([], model='not-a-qwen-model')
-        credential.assert_not_called()
+    def test_removed_qwen35_cli_route_is_rejected_before_provider_call(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source, output = Path(folder) / 'cue.wav', Path(folder) / 'review.json'
+            self.tone(source)
+            with patch('slotgen_provider.http.request_bytes', return_value=(self.stream(json.dumps(self.answer())), {})) as request, patch('sys.stderr', new_callable=io.StringIO), patch('sys.stdout', new_callable=io.StringIO), self.assertRaises(SystemExit) as error:
+                review.main(['describe', str(source), '--model', 'alibaba/qwen3.5-omni-plus', '--out', str(output)])
+            self.assertEqual(error.exception.code, 2)
+            request.assert_not_called()
 
     def test_stream_errors_after_partial_text_are_not_reviews(self):
         payload = self.stream('partial', done=False) + b'data: {"error":{"message":"Invalid audio URL","request_id":"failed-id"}}\n\ndata: [DONE]\n\n'
@@ -137,7 +128,7 @@ class AudioReviewTests(unittest.TestCase):
             self.assertEqual(report['model'], 'qwen/qwen3.8-omni-flash')
             self.assertEqual(report['provider'], 'OpenRouter')
             self.assertEqual(report['endpoint'], 'https://openrouter.ai/api/v1/chat/completions')
-            self.assertEqual(report['max_tokens'], 16384)
+            self.assertIsNone(report['max_tokens'])
 
     def test_existing_report_is_preserved_before_network_call(self):
         with tempfile.TemporaryDirectory() as folder:

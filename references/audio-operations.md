@@ -39,24 +39,14 @@ Default: `qwen/qwen3.8-omni-flash` via OpenRouter
 `OPENROUTER_KEY`).
 Send audio as raw Base64 in `input_audio.data` with `format: "mp3"`. The helper decodes
 the source, measures the selected window and encodes MP3 for transport. Request streaming
-text output, temperature 0.2 and `max_completion_tokens: 16384` unless the user
-supplies another budget via `--max-tokens`. No automatic fallback is used.
-
-Qwen3.5 comparison route: pass `--model alibaba/qwen3.5-omni-plus` explicitly.
-It uses AIMLAPI and `AIMLAPI_KEY`, with the same supplied audio but `max_tokens`
-as the provider's budget field. The former bare `qwen3.8-omni-flash` selector
-remains an alias for the OpenRouter route. Neither route generates audio. Never
-fall back to Qwen3.5 silently.
-
-See [Qwen Omni comparison](qwen-omni-comparison.md) for the full decision table and
-official references. To compare models, use the same input files, segments, brief
-and `--max-tokens`, then compare the saved JSON reports and perform a listening check.
+text output and temperature 0.2. `--max-tokens` is optional: without it the
+request omits `max_completion_tokens`; an explicit value is passed unchanged.
+There is no alternate reviewer or automatic fallback. This route does not
+generate audio.
 
     python scripts/audio_review.py describe cue.wav --full --brief brief.md --out .tmp_audio/review.json
     python scripts/audio_review.py consult original.wav candidate.wav "generation prompt" --brief brief.md --out .tmp_audio/comparison.json
     python scripts/audio_review.py describe episode.wav --brief brief.md --out .tmp_audio/qwen38-review.json
-    python scripts/audio_review.py describe episode.wav --model alibaba/qwen3.5-omni-plus \
-      --brief brief.md --out .tmp_audio/qwen35-review.json
 
 Without --segments the whole clip is supplied; short clips are padded only for analysis.
 An explicit segments JSON contains a list of [start,end] seconds applied to each input.
@@ -97,8 +87,7 @@ slice as a substitute for a named cue or full loop. Retain numerical measurement
 silence, levels and timing even when the model's description sounds confident.
 
 API references: [OpenRouter Qwen3.8](https://openrouter.ai/qwen/qwen3.8-omni-flash/),
-[OpenRouter chat completions](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request),
-[AIMLAPI Qwen3.5](https://docs.aimlapi.com/api-references/text-models-llm/alibaba-cloud/qwen3.5-omni-plus).
+[OpenRouter chat completions](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request).
 
 For families, inspect originals with dedup_check.py first. Related variants should not
 be accidentally identical; pitch changes are one possible technique, not a universal rule.

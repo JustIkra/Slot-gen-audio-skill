@@ -43,10 +43,7 @@ Provider details, explicit formats and examples:
 [audio operations](references/audio-operations.md). Do not silently substitute providers
 or models; check current provider capabilities before changing the configured route.
 
-For the Qwen3.5/Qwen3.8 comparison and evidence limits, read
-[Qwen Omni comparison](references/qwen-omni-comparison.md). Qwen3.5 via AIMLAPI
-remains available only with explicit `--model alibaba/qwen3.5-omni-plus`.
-Neither review route generates audio.
+Audio review has no alternate model or automatic fallback; it does not generate audio.
 
 ## Event and mix contract
 
@@ -76,7 +73,8 @@ Audio review preserves full clips by default, or records --segments coverage. It
 digital silence locally and omits silent windows from model input. --brief supplies the
 game context; --out must be a new report path. Qwen returns structured descriptions,
 issues and uncertainties; consult also returns a comparison and generation suggestion.
---max-tokens defaults to 16384 and an explicit value is passed unchanged. HTTP 200 can carry
+--max-tokens is optional; when omitted, no completion cap is sent. An explicit
+value is passed unchanged. HTTP 200 can carry
 an error event: only a complete, non-refused response with audio_accessible=true is a model
 review. Failures and interrupted requests remain in the report; do not silently retry or
 switch models. Timing, silence and levels come from measurements, not model guesses.

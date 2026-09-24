@@ -7,37 +7,12 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from audio_metrics import probe
 
 MODEL = "qwen/qwen3.8-omni-flash"
-QWEN35_MODEL = "alibaba/qwen3.5-omni-plus"
-MODEL_PROFILES = {
-    MODEL: {
-        "provider": "OpenRouter",
-        "endpoint": "https://openrouter.ai/api/v1/chat/completions",
-        "key_name": "OPENROUTER_KEY",
-        "token_field": "max_completion_tokens",
-    },
-    QWEN35_MODEL: {
-        "provider": "AIMLAPI",
-        "endpoint": "https://api.aimlapi.com/v1/chat/completions",
-        "key_name": "AIMLAPI_KEY",
-        "token_field": "max_tokens",
-    },
-}
-MODEL_ALIASES = {"qwen3.8-omni-flash": MODEL}
-DEFAULT_MAX_TOKENS = 16384
-
-
-def profile_for(model):
-    selected = MODEL_ALIASES.get(model, model)
-    try:
-        return selected, MODEL_PROFILES[selected]
-    except KeyError as error:
-        raise ValueError(f"Unsupported audio review model: {model}") from error
+ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 
 
 class ReviewFailure(ValueError):
@@ -183,23 +158,19 @@ def parse_response(payload):
     return {**details, "review": review}
 
 
-def call(content, max_tokens=DEFAULT_MAX_TOKENS, model=MODEL):
+def call(content, max_tokens=None):
     from slotgen_provider.env import provider_key
     from slotgen_provider.http import request_bytes
-    if max_tokens is None:
-        max_tokens = DEFAULT_MAX_TOKENS
-    if max_tokens <= 0:
+    if max_tokens is not None and max_tokens <= 0:
         raise ValueError("max_tokens must be positive")
-    selected, profile = profile_for(model)
-    key = provider_key(profile["key_name"])
-    body = {"model": selected, "stream": True, "stream_options": {"include_usage": True},
-            "modalities": ["text"], "temperature": 0.2, profile["token_field"]: max_tokens,
+    key = provider_key("OPENROUTER_KEY")
+    body = {"model": MODEL, "stream": True, "stream_options": {"include_usage": True},
+            "modalities": ["text"], "temperature": 0.2,
             "messages": [{"role": "user", "content": content}]}
-    endpoint = profile["endpoint"]
-    parsed_endpoint = urlsplit(endpoint)
-    origin = f"{parsed_endpoint.scheme}://{parsed_endpoint.netloc}"
-    payload, _ = request_bytes("POST", endpoint, token=key,
-                               allowed_origins={origin}, body=body, timeout=300)
+    if max_tokens is not None:
+        body["max_completion_tokens"] = max_tokens
+    payload, _ = request_bytes("POST", ENDPOINT, token=key,
+                               allowed_origins={"https://openrouter.ai"}, body=body, timeout=300)
     return parse_response(payload.replace(key.encode(), b"[REDACTED]"))
 
 
@@ -214,15 +185,12 @@ def main(argv=None):
     coverage.add_argument("--full", action="store_true")
     coverage.add_argument("--segments", help="JSON list of [start,end] seconds applied to each input")
     parser.add_argument("--out", required=True, help="New task-local review report JSON")
-    parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
-    parser.add_argument("--model", choices=(*MODEL_PROFILES, *MODEL_ALIASES), default=MODEL,
-                        help="Qwen3.8 via OpenRouter by default; Qwen3.5 via AIMLAPI if selected explicitly")
+    parser.add_argument("--max-tokens", type=int, help="Optional explicit completion limit")
     args = parser.parse_args(argv)
-    selected_model, profile = profile_for(args.model)
     output = Path(args.out)
     if output.exists():
         raise ValueError("Review report already exists; use a new path for an intentional new request")
-    if args.max_tokens <= 0:
+    if args.max_tokens is not None and args.max_tokens <= 0:
         parser.error("--max-tokens must be positive")
     from slotgen_provider.review import input_fingerprints
     from slotgen_provider.http import SubmissionUnknown
@@ -266,8 +234,7 @@ def main(argv=None):
                    for (label, file), fp in zip(files, input_fingerprints([f for _, f in files]))],
         "coverage": windows, "brief": brief, "operation": args.operation,
         "candidate_prompt": args.used_prompt if args.operation == "consult" else None,
-        "model": selected_model, "provider": profile["provider"],
-        "endpoint": profile["endpoint"],
+        "model": MODEL, "provider": "OpenRouter", "endpoint": ENDPOINT,
         "max_tokens": args.max_tokens, "provider_called": False, "status": "prepared",
     }
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -282,7 +249,7 @@ def main(argv=None):
         report.update(status="submitted", provider_called=True)
         output.write_text(json.dumps(report, ensure_ascii=False, indent=2))
         try:
-            result = call(content, args.max_tokens, args.model)
+            result = call(content, args.max_tokens)
             if args.operation == "consult" and any(result["review"].get(field) in (None, "")
                                                     for field in ("comparison", "generation_prompt_en", "suggested_duration_seconds")):
                 raise ReviewFailure("Comparison response is missing requested fields", result)
