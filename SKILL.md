@@ -1,7 +1,7 @@
 ---
 name: slot-gen-audio
 description: >
-  Use when creating or replacing slot-game SFX or music with crypto-payable providers,
+  Use when planning or replacing slot-game SFX or music,
   matching reference duration and levels, making sound families, reviewing audio,
   defining sound palettes/event maps, or integrating sound through Urso/Zephyr.
 ---
@@ -21,25 +21,24 @@ Use the Python environment containing the sibling slotgen-provider package:
     python -m pip install -e ../slot-gen -r requirements.txt
 
 ffmpeg and ffprobe must be on PATH. The prepared shared interpreter is
-/Users/maksim/MorningCat/.local/skills-venv/bin/python. Keys are VENICE_API_KEY,
-AIMLAPI_KEY and OPENROUTER_KEY
-in the environment or ~/.codex/.env; do not expose values.
+/Users/maksim/MorningCat/.local/skills-venv/bin/python. The BB review provider
+reads OPENROUTER_KEY on its host; do not expose the value.
 
 ## Routes
 
 | Task | Command |
 |---|---|
-| SFX | scripts/venice_sfx.py |
-| Music/ambient | scripts/aimlapi_music.py |
+| SFX generation | BB generation agent, to be configured in a later stage |
+| Music/ambient generation | BB generation agent, to be configured in a later stage |
 | Measurements | scripts/audio_metrics.py measure <file> --json |
 | Duration/format match | scripts/audio_metrics.py fit <candidate> <reference> <output> |
-| Type/material comparison | scripts/audio_review.py describe or consult, with --out |
+| Type/material comparison | BB `qwen-review` agent; see [audio operations](references/audio-operations.md) |
 | Numbered-family deduplication | scripts/dedup_check.py |
 | Existing processing recipes | scripts/audio_post.sh |
 
-Configured defaults are Venice/ElevenLabs SFX, AIMLAPI/Lyria music and
-OpenRouter/Qwen3.8-Omni-Flash audio understanding (`qwen/qwen3.8-omni-flash`).
-Provider details, explicit formats and examples:
+Audio understanding uses the BB `qwen-review` provider with
+`qwen/qwen3.8-omni-flash`.
+Local processing details and review examples:
 [audio operations](references/audio-operations.md). Do not silently substitute providers
 or models; check current provider capabilities before changing the configured route.
 
@@ -57,7 +56,6 @@ Audio review has no alternate model or automatic fallback; it does not generate 
   counterparts; captions are needed when spoken information carries meaning.
 - Spectral measurements are diagnostics, not proof of comfort. AI reviews are advisory;
   do not claim subjective listening acceptance without the user's review.
-
 ## Processing and audit
 
 fit defaults to the reference PCM format; --format engine requires a profile JSON with
@@ -69,19 +67,17 @@ sound keys. Derive cue boundaries from the atlas and ordering/loops from game ev
 label reconstructed timing and omitted mix layers. For an isolated cue, send the whole cue.
 See the atlas recipe in [audio operations](references/audio-operations.md).
 
-Audio review preserves full clips by default, or records --segments coverage. It measures
-digital silence locally and omits silent windows from model input. --brief supplies the
-game context; --out must be a new report path. Qwen returns structured descriptions,
-issues and uncertainties; consult also returns a comparison and generation suggestion.
---max-tokens is optional; when omitted, no completion cap is sent. An explicit
-value is passed unchanged. HTTP 200 can carry
-an error event: only a complete, non-refused response with audio_accessible=true is a model
-review. Failures and interrupted requests remain in the report; do not silently retry or
-switch models. Timing, silence and levels come from measurements, not model guesses.
+Attach each complete cue or a named, measured segment to a new BB review thread.
+For comparison, attach original and candidate with an explicit brief and source labels.
+The BB thread is the review record; save its link, source hashes, coverage, measured
+levels and findings in the task-local report. Treat `AUDIO_INACCESSIBLE`, an uncertain
+modality claim, provider failure or interrupted turn as incomplete review. Do not
+silently retry or switch models. Timing, silence and levels come from local
+measurements, not model guesses. See [audio operations](references/audio-operations.md).
 
-Generation uses saved job records with submit/resume/download/auto. Resume existing jobs;
-submission_unknown is not permission to submit again. Check generated format and preserve
-originals before installation.
+Generation agents and their models will be configured separately. Preserve any existing
+legacy job records; an ambiguous submission is not permission to submit again. Check
+generated format and preserve originals before installation.
 
 ## Integration only when requested
 

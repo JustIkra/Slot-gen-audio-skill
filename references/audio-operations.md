@@ -1,24 +1,16 @@
 # Audio operations
 
-Run scripts in the environment containing slotgen-provider and numpy, with ffmpeg/ffprobe
-on PATH. Credentials: VENICE_API_KEY, AIMLAPI_KEY and OPENROUTER_KEY; no values in
-arguments/logs.
+Run local measurement and fitting commands in the prepared Python environment with
+ffmpeg/ffprobe on PATH. The BB review provider owns OPENROUTER_KEY. Keep credentials
+out of arguments and logs.
 
-## Generate and resume
+## Generation agent pending
 
-    python scripts/venice_sfx.py --prompt "A short wooden latch closing, soft low impact" --seconds 1 --out .tmp_audio/click.wav
-    python scripts/aimlapi_music.py --model lyria2 --prompt "Instrumental background matching the approved game brief" --out .tmp_audio/music.wav
-    python scripts/venice_sfx.py --action resume --job-file .tmp_audio/click.wav.job.json
-
-The configured SFX route is Venice/elevenlabs-sound-effects-v2; music is AIMLAPI/lyria2.
-Use --action submit to save the task ID without waiting, resume to poll/download, download
-for a ready task and auto for the normal workflow. A different candidate needs an explicitly
-new job/output path. Existing downloaded outputs are checked by checksum.
-
-SFX prompts describe physical sound/material. Theme examples are not global requirements:
-use the project's actual mood and instruments. Short generated material can be fitted
-afterward. Check current API limits before changing models or parameters; do not use old
-price estimates as authorization to spend.
+SFX and music generation will move to BB agents when their generation models
+are chosen. Do not submit new generation work through the legacy direct-provider
+commands from this skill. Keep existing job records intact so an in-flight task
+can be reconciled during migration. SFX prompts should still describe physical
+sound and material; the project's actual mood and instruments govern music.
 
 ## Measure and fit
 
@@ -34,48 +26,43 @@ target 48k stereo; do not confuse them with reference-format matching.
 
 ## Review
 
-Default: `qwen/qwen3.8-omni-flash` via OpenRouter
-(`POST https://openrouter.ai/api/v1/chat/completions`, authenticated with
-`OPENROUTER_KEY`).
-Send audio as raw Base64 in `input_audio.data` with `format: "mp3"`. The helper decodes
-the source, measures the selected window and encodes MP3 for transport. Request streaming
-text output and temperature 0.2. `--max-tokens` is optional: without it the
-request omits `max_completion_tokens`; an explicit value is passed unchanged.
-There is no alternate reviewer or automatic fallback. This route does not
-generate audio.
+Use the installed BB `qwen-review` provider with model
+`qwen/qwen3.8-omni-flash`. The provider accepts MP3, WAV, M4A, OGG and FLAC;
+it converts non-MP3 audio on the host. Attach complete clips by default. For a
+named segment, extract it locally with ffmpeg and record the exact source interval.
+Measure digital silence and levels with `audio_metrics.py` before asking for
+subjective review. A silent result is a measurement, not listening approval.
 
-    python scripts/audio_review.py describe cue.wav --full --brief brief.md --out .tmp_audio/review.json
-    python scripts/audio_review.py consult original.wav candidate.wav "generation prompt" --brief brief.md --out .tmp_audio/comparison.json
-    python scripts/audio_review.py describe episode.wav --brief brief.md --out .tmp_audio/qwen38-review.json
+Write the review question and game context to a task-local prompt file. Name
+each attachment's role in the prompt. For a comparison, attach both the
+original and candidate as separate files. Then start one BB child thread:
 
-Without --segments the whole clip is supplied; short clips are padded only for analysis.
-An explicit segments JSON contains a list of [start,end] seconds applied to each input.
-The report distinguishes original/candidate even when their filenames match. It records
-source paths, input hashes, coverage, padding, decoded sample peaks, requested/returned
-model, request ID and available usage/cost. `review` is a JSON object with description,
-issues, uncertainties and optional comparison/generation fields. Exact timing is supplied
-as metadata; suggestions are advisory and need a listening check.
+```bash
+bb thread spawn --project "$BB_PROJECT_ID" --environment "$BB_ENVIRONMENT_ID" \
+  --parent-self --visibility hidden --provider qwen-review \
+  --model qwen/qwen3.8-omni-flash --permission-mode accept-edits \
+  --title "Audio review" --prompt-file /absolute/path/review-prompt.md \
+  --file /absolute/path/candidate.wav
+```
 
-Digital silence is checked before model invocation: silent windows are represented by
-metadata, and an entirely silent request returns `status: digital_silence` locally with
-`provider_called: false`. This is a measurement result, not subjective approval. Very quiet
-nonzero audio is not automatically classified as silence.
-
-Reports use a new --out path per intentional request. A submitted record is written before
-the provider call. HTTP 200 error events, missing terminal markers, truncated outputs,
-refusals and audio_accessible=false fail the review and retain available error details.
-`submission_unknown` means transport was interrupted and completion/billing is uncertain;
-inspect the provider's request/usage history before submitting again. Do not silently lower
---max-tokens, convert an audio failure to a text-only success, or switch to another reviewer.
+Use `bb thread wait <id> --status idle` and inspect `bb thread log <id> --all --json`.
+The thread is the source record. Save its ID, source paths and SHA-256 hashes,
+coverage, numerical measurements, model findings and unresolved questions in
+the task-local report. For a comparison, request description, issues,
+uncertainties and a generation suggestion. An inaccessible-audio claim,
+failure, refusal or interrupted turn is incomplete, even if BB marks a turn
+completed. Do not silently resubmit unchanged media or switch reviewers.
+Exact timing and levels come from measurements; subjective suggestions need
+the user's listening check.
 
 ### Atlas episodes
 
 Use the matching JSON and audio from the game's actual runtime build. Do not combine an
 old source-atlas JSON with a newly packed OGG/MP3. Audiosprite entries are
 `[start_ms, duration_ms, optional_loop]`: convert to `[start_ms/1000,
-(start_ms+duration_ms)/1000]` for --segments. Record the soundKey alongside those bounds in
-the task manifest/brief. Separate --segments are delivered as separate labelled windows,
-not concatenated into a seamless playback sequence.
+(start_ms+duration_ms)/1000]` before extracting a named segment. Record the soundKey
+alongside those bounds in the task manifest/brief. Separate extracted segments are
+separate labelled attachments, not a seamless playback sequence.
 
 For a spin, scatter series, bonus transition or win sequence, extract complete keys with
 ffmpeg and assemble an episode using the event order, repetitions, start/stop, fades and
@@ -86,8 +73,7 @@ Then review the resulting episode as a full clip. Do not use a random first-N-se
 slice as a substitute for a named cue or full loop. Retain numerical measurements for
 silence, levels and timing even when the model's description sounds confident.
 
-API references: [OpenRouter Qwen3.8](https://openrouter.ai/qwen/qwen3.8-omni-flash/),
-[OpenRouter chat completions](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request).
+Provider reference: [Qwen3.8 Omni Flash](https://openrouter.ai/qwen/qwen3.8-omni-flash/).
 
 For families, inspect originals with dedup_check.py first. Related variants should not
 be accidentally identical; pitch changes are one possible technique, not a universal rule.
